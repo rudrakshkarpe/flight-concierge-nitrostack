@@ -1,0 +1,12 @@
+node_modules/
+dist/
+src/widgets/node_modules/
+src/widgets/out/
+
+.env
+.env.*
+!.env.example
+
+data/
+uploads/
+*.log
