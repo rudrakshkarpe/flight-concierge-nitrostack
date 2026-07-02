@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
+import { tmpdir } from 'os';
 import * as path from 'path';
 import {
   JournalEntry,
@@ -20,10 +21,12 @@ const IGNORED_DIRECTORIES = new Set([
 ]);
 
 export class JournalStore {
-  private readonly dataDir: string;
-  private readonly indexPath: string;
+  private dataDir: string;
+  private indexPath: string;
+  private readonly hasExplicitDataDir: boolean;
 
   constructor() {
+    this.hasExplicitDataDir = Boolean(process.env.JOURNAL_MEMORY_DATA_DIR);
     this.dataDir = process.env.JOURNAL_MEMORY_DATA_DIR
       ? path.resolve(process.env.JOURNAL_MEMORY_DATA_DIR)
       : path.join(process.cwd(), 'data');
@@ -263,7 +266,7 @@ export class JournalStore {
   }
 
   private async loadIndex(): Promise<JournalIndex> {
-    await fs.mkdir(this.dataDir, { recursive: true });
+    await this.ensureDataDir();
 
     try {
       const raw = await fs.readFile(this.indexPath, 'utf8');
@@ -285,8 +288,23 @@ export class JournalStore {
 
   private async saveIndex(index: JournalIndex): Promise<void> {
     index.updatedAt = new Date().toISOString();
-    await fs.mkdir(this.dataDir, { recursive: true });
+    await this.ensureDataDir();
     await fs.writeFile(this.indexPath, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
+  }
+
+  private async ensureDataDir(): Promise<void> {
+    try {
+      await fs.mkdir(this.dataDir, { recursive: true });
+      return;
+    } catch (error: any) {
+      if (this.hasExplicitDataDir || (error.code !== 'EACCES' && error.code !== 'EROFS')) {
+        throw error;
+      }
+    }
+
+    this.dataDir = path.join(tmpdir(), 'journal-memory-mcp', 'data');
+    this.indexPath = path.join(this.dataDir, 'journal-index.json');
+    await fs.mkdir(this.dataDir, { recursive: true });
   }
 
   private async walk(root: string, extensions: Set<string>): Promise<string[]> {
