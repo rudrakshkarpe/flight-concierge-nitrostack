@@ -4,6 +4,8 @@ Flight Concierge MCP is a NitroStack-based Model Context Protocol server for sea
 
 It gives an assistant a provider-aware travel workflow: call live tools, inspect provider availability, normalize structured results, compare tradeoffs, and hand the user useful next actions.
 
+![Nitro Studio App Canvas](docs/assets/nitro-studio-app-canvas.png)
+
 ## Current Status
 
 - Runtime: NitroStack MCP SDK with TypeScript.
