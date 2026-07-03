@@ -1,36 +1,198 @@
 # Flight Concierge MCP
 
-NitroStack MCP server for searching, comparing, and planning flights.
+Flight Concierge MCP is a NitroStack-based Model Context Protocol server for searching, comparing, and planning flights across multiple providers.
 
-This replaces the original journal-memory experiment with a more MCP-native
-travel workflow: live tools, provider adapters, normalized offers, search links,
-and agent-friendly tradeoff analysis.
+The project started as a journal-memory MCP experiment and was intentionally pivoted into a flight concierge because flights are a stronger MCP use case: the assistant can call live tools, inspect provider availability, normalize structured results, compare tradeoffs, and hand the user useful next actions instead of just storing notes.
 
-## What It Does
+## Current Status
 
-- Searches flight fares using Amadeus when credentials are configured.
-- Searches live flight schedules/status using Aviationstack when configured.
-- Falls back to deterministic mock offers only when no live provider is configured.
-- Compares offers by price, total duration, and stops.
-- Creates search links for Google Flights, Skyscanner, and Kayak.
-- Exposes provider status so an MCP client can tell whether results are live.
+- Runtime: NitroStack MCP SDK with TypeScript.
+- MCP server name: `flight-concierge-mcp`.
+- Codex MCP alias used during testing: `flight-mate-mcp`.
+- Deployment target: NitroStack Cloud.
+- Public GitHub repository: `flight-concierge-nitrostack`.
+- Live provider support:
+  - Amadeus for priced flight offers when Amadeus credentials are configured.
+  - Aviationstack for live flight schedule and status data when an Aviationstack API key is configured.
+  - Mock fallback for deterministic demos when no live provider credentials are available.
 
-## MCP Tools
+## Screenshots From The Build
 
-- `search_flights`
-- `compare_flight_offers`
-- `create_flight_search_links`
-- `list_flight_providers`
+### Nitro Studio App Canvas
 
-## Environment
+This is the Nitro Studio view of the MCP app after the flight module was built. The canvas shows the central NitroStack agent connected to the flight tools, provider status resource, health checks, and the reusable flight search prompt.
 
-Create `.env` from `.env.example`:
+![Nitro Studio App Canvas](docs/assets/nitro-studio-app-canvas.png)
 
-```bash
-cp .env.example .env
+### NitroStack Cloud Deployment Logs
+
+This screenshot captures the NitroStack Cloud deployment pipeline processing the MCP app, building the TypeScript production bundle, and preparing the cloud deployment.
+
+![NitroStack Cloud Deployment Logs](docs/assets/nitrocloud-deployment-logs.png)
+
+## What This Server Does
+
+The server exposes flight planning capabilities to any MCP-compatible client. In Codex, Claude Desktop, Cursor, or another MCP client, the assistant can use this server to:
+
+- List which flight providers are configured and whether each one is live.
+- Search for flights by origin, destination, departure date, return date, passenger count, cabin class, currency, maximum price, and stop preference.
+- Use Amadeus when real fare search credentials are available.
+- Use Aviationstack when live flight schedules/status are available.
+- Fall back to predictable mock data so the MCP integration can still be tested without paid provider credentials.
+- Compare returned offers by price, total duration, and number of stops.
+- Generate user-facing search links for Google Flights, Skyscanner, and Kayak.
+- Provide an agent prompt that turns a natural-language trip request into a structured search and comparison workflow.
+
+## Why We Pivoted From Journal Memory
+
+The first idea was a journal-memory MCP server that would track journal entries across Notion, Obsidian, Apple Notes, Google Keep, and other note takers.
+
+That can become useful, but the first version was too broad:
+
+- Each note source needs a different integration model.
+- Apple Notes and Google Keep do not expose simple universal APIs for this use case.
+- Syncing private memory dumps raises privacy, authentication, deduplication, and data ownership questions early.
+- The MCP tools would mostly be search and summarization wrappers until the data pipeline is mature.
+
+The flight concierge version is more immediately demonstrable as MCP:
+
+- A user asks a travel question.
+- The assistant calls a tool.
+- The server talks to external providers.
+- The server normalizes and ranks results.
+- The assistant explains tradeoffs.
+- The user gets links and next steps.
+
+That makes the value of MCP visible in one interaction.
+
+## Project Structure
+
+```text
+.
+├── .env.example
+├── README.md
+├── docs/
+│   └── assets/
+│       ├── nitro-studio-app-canvas.png
+│       └── nitrocloud-deployment-logs.png
+├── package.json
+├── package-lock.json
+├── src/
+│   ├── app.module.ts
+│   ├── health/
+│   │   └── system.health.ts
+│   ├── index.ts
+│   └── modules/
+│       └── flights/
+│           ├── flights.module.ts
+│           ├── flights.prompts.ts
+│           ├── flights.resources.ts
+│           ├── flights.service.ts
+│           ├── flights.tools.ts
+│           └── flights.types.ts
+└── tsconfig.json
 ```
 
-For live Amadeus fare search:
+## How We Built It From Scratch
+
+### 1. Created A NitroStack MCP Project
+
+The project was created as a TypeScript NitroStack MCP server. The important runtime dependencies are:
+
+```json
+{
+  "@nitrostack/core": "^1",
+  "@nitrostack/cli": "^1",
+  "typescript": "^5.3.3",
+  "zod": "^3.22.4",
+  "dotenv": "^16.3.1"
+}
+```
+
+NitroStack provides the MCP decorators and server runtime. Zod is used to describe and validate tool inputs. Dotenv loads local environment variables.
+
+### 2. Registered The Root MCP App
+
+The root app lives in `src/app.module.ts`.
+
+It registers:
+
+- The MCP server name: `flight-concierge-mcp`.
+- The app module.
+- NitroStack config loading.
+- System health checks.
+- The flight module.
+
+The app starts from `src/index.ts`, which imports environment variables, creates the NitroStack MCP application, and starts the server.
+
+### 3. Added A Dedicated Flights Module
+
+The flight feature is isolated under `src/modules/flights`.
+
+The module is intentionally split into small MCP-facing files:
+
+- `flights.module.ts` wires the feature into NitroStack.
+- `flights.tools.ts` exposes callable MCP tools.
+- `flights.resources.ts` exposes provider status as an MCP resource.
+- `flights.prompts.ts` exposes a reusable agent prompt.
+- `flights.service.ts` contains provider logic, normalization, comparison, and search-link generation.
+- `flights.types.ts` defines normalized search inputs, offers, itineraries, segments, and provider status.
+
+### 4. Designed The MCP Tool Surface
+
+The MCP server exposes four tools.
+
+| Tool | Purpose |
+| --- | --- |
+| `list_flight_providers` | Shows which providers are configured, enabled, and live. |
+| `search_flights` | Searches flights using `auto`, `amadeus`, `aviationstack`, or `mock`. |
+| `compare_flight_offers` | Ranks normalized offers using price, duration, and stops. |
+| `create_flight_search_links` | Creates Google Flights, Skyscanner, and Kayak search links for the same route and dates. |
+
+The main search input supports:
+
+- `origin`: 3-letter IATA code, such as `BLR`.
+- `destination`: 3-letter IATA code, such as `SFO`.
+- `departureDate`: `YYYY-MM-DD`.
+- `returnDate`: optional `YYYY-MM-DD`.
+- `adults`: default `1`.
+- `children`: optional.
+- `infants`: optional.
+- `cabinClass`: `ECONOMY`, `PREMIUM_ECONOMY`, `BUSINESS`, or `FIRST`.
+- `currencyCode`: default `USD`.
+- `maxPrice`: optional.
+- `maxStops`: optional.
+- `nonStop`: optional boolean.
+- `provider`: `auto`, `amadeus`, `aviationstack`, or `mock`.
+- `limit`: result limit from `1` to `50`.
+
+### 5. Added Provider Routing
+
+The server uses provider routing so the client can ask for a specific provider or let the server decide.
+
+Provider order in `auto` mode:
+
+1. Use Amadeus if `AMADEUS_CLIENT_ID` and `AMADEUS_CLIENT_SECRET` are configured.
+2. Use Aviationstack if `AVIATIONSTACK_API_KEY` is configured.
+3. Use mock data if no live credentials are configured.
+
+This lets the same MCP tool work in local development, demos, and production.
+
+### 6. Added Amadeus Fare Search Support
+
+Amadeus is used for real fare search when credentials exist.
+
+The Amadeus integration:
+
+- Requests an OAuth token with client credentials.
+- Caches the token until it is close to expiry.
+- Calls the Flight Offers Search endpoint.
+- Maps Amadeus itineraries and segments into the local normalized `FlightOffer` shape.
+- Preserves raw provider data for debugging.
+- Sorts results by price.
+- Applies stop filters when requested.
+
+Environment variables:
 
 ```bash
 AMADEUS_BASE_URL=https://test.api.amadeus.com
@@ -38,27 +200,252 @@ AMADEUS_CLIENT_ID=your_client_id
 AMADEUS_CLIENT_SECRET=your_client_secret
 ```
 
-For live Aviationstack schedule/status search:
+### 7. Added Aviationstack Schedule/Status Support
+
+Aviationstack is used for live flight schedules and status data.
+
+Important limitation: Aviationstack does not provide ticket fares or checkout availability. It can return live schedule/status style data, including flight dates, airlines, flight numbers, airports, times, gates, and terminals depending on the plan and record.
+
+The server handles that by returning normalized flight offers with:
+
+- `provider: "aviationstack"`.
+- Live itinerary and segment details.
+- `price.available: false`.
+- A warning that fares are not available from this provider.
+- Search links so the user can continue into a consumer flight search surface.
+
+Environment variables:
 
 ```bash
 AVIATIONSTACK_BASE_URL=http://api.aviationstack.com/v1
 AVIATIONSTACK_API_KEY=your_aviationstack_key
 ```
 
-Aviationstack does not return ticket fares. When it is the selected provider,
-flight times, airlines, status, terminals, and gates can be live, but prices are
-reported as unavailable. Without any live credentials, `search_flights` still
-works with mock data so demos and MCP client integration can be tested
-immediately.
+Some Aviationstack plans restrict specific filters or HTTPS access. The service therefore tries route/date filters first, then broader departure-date and departure-airport lookups, then filters client-side when possible.
 
-## Quick Start
+### 8. Added Mock Fallback
+
+Mock data is not meant to pretend to be real availability. It exists for MCP integration testing.
+
+When no live provider credentials are present, the mock provider:
+
+- Generates deterministic offers from the route and date.
+- Returns consistent prices and durations for repeatable demos.
+- Supports stop filters and max-price filters.
+- Includes search links.
+
+This lets the server stay usable even before API keys are added.
+
+### 9. Added Normalized Ranking
+
+All providers are normalized into the same `FlightOffer` shape.
+
+The comparison tool ranks offers with configurable weights:
+
+```json
+{
+  "priceWeight": 0.45,
+  "durationWeight": 0.35,
+  "stopsWeight": 0.2
+}
+```
+
+The comparison result includes:
+
+- Ranked offers.
+- Best recommendation.
+- A short rationale.
+- Tradeoff notes such as cheapest, fastest, fewer stops, or unavailable fares.
+
+### 10. Added Search Links
+
+The server creates links for:
+
+- Google Flights.
+- Skyscanner.
+- Kayak.
+
+These links are search/deep links. They are not guaranteed checkout links, and they should be treated as a handoff into a booking provider.
+
+### 11. Added Nitro Studio And Cloud Deployment
+
+After the server was built, we opened it in Nitro Studio and verified that NitroStack recognized:
+
+- Tools.
+- Resources.
+- Prompts.
+- Health checks.
+- The central MCP agent.
+
+Then we deployed it through NitroStack Cloud. The deployment pipeline built the TypeScript production bundle and published the MCP service URL.
+
+## MCP Resources
+
+### `flight-concierge://providers`
+
+Returns provider availability as JSON.
+
+Example shape:
+
+```json
+{
+  "providers": [
+    {
+      "name": "amadeus",
+      "enabled": false,
+      "live": false,
+      "purpose": "Live flight search and pricing via Amadeus Flight Offers Search.",
+      "requiredEnv": ["AMADEUS_CLIENT_ID", "AMADEUS_CLIENT_SECRET"]
+    },
+    {
+      "name": "aviationstack",
+      "enabled": true,
+      "live": true,
+      "purpose": "Live flight status and schedule lookup via Aviationstack. Does not provide ticket fares.",
+      "requiredEnv": ["AVIATIONSTACK_API_KEY"]
+    },
+    {
+      "name": "mock",
+      "enabled": true,
+      "live": false,
+      "purpose": "Deterministic demo offers used when live credentials are unavailable."
+    }
+  ]
+}
+```
+
+## MCP Prompt
+
+### `flight_concierge_search`
+
+This prompt turns a natural-language trip request into an agent workflow:
+
+1. Parse the trip request.
+2. Call `search_flights`.
+3. Compare the returned offers.
+4. Explain the best tradeoffs.
+
+Example prompt argument:
+
+```json
+{
+  "trip": "Find BLR to SFO flights departing 2026-08-14 and returning 2026-08-28, economy, one adult, max one stop."
+}
+```
+
+## Local Setup
+
+### 1. Install Dependencies
 
 ```bash
 npm install
+```
+
+### 2. Create Local Environment File
+
+```bash
+cp .env.example .env
+```
+
+Add only the provider credentials you actually have.
+
+For Aviationstack schedule/status:
+
+```bash
+AVIATIONSTACK_BASE_URL=http://api.aviationstack.com/v1
+AVIATIONSTACK_API_KEY=your_aviationstack_key
+```
+
+For Amadeus priced flight offers:
+
+```bash
+AMADEUS_BASE_URL=https://test.api.amadeus.com
+AMADEUS_CLIENT_ID=your_client_id
+AMADEUS_CLIENT_SECRET=your_client_secret
+```
+
+Do not commit `.env`.
+
+### 3. Run In Development
+
+```bash
 npm run dev
 ```
 
-## Example MCP Call
+### 4. Build Production Bundle
+
+```bash
+npm run build
+```
+
+### 5. Start Production Server
+
+```bash
+npm run start:prod
+```
+
+## Connect The Deployed Server To Codex
+
+The deployed NitroStack MCP endpoint used in this build is:
+
+```text
+https://flight-mate-mcp-6a46b757-rudrakshs-org-7b2c8991.app.nitrocloud.ai/mcp
+```
+
+Add it to Codex:
+
+```bash
+codex mcp add flight-mate-mcp --url https://flight-mate-mcp-6a46b757-rudrakshs-org-7b2c8991.app.nitrocloud.ai/mcp
+```
+
+List configured MCP servers:
+
+```bash
+codex mcp list
+```
+
+Remove and re-add if the deployment URL changes:
+
+```bash
+codex mcp remove flight-mate-mcp
+codex mcp add flight-mate-mcp --url https://your-new-nitrostack-url.app.nitrocloud.ai/mcp
+```
+
+## Example Codex Prompts
+
+List providers:
+
+```text
+Use flight-mate-mcp to list flight providers.
+```
+
+Search a route with Aviationstack schedule data:
+
+```text
+Use flight-mate-mcp to search BLR to GOI flights departing 2026-07-03 using aviationstack, limit 2.
+```
+
+Search a long-haul itinerary:
+
+```text
+Use flight-mate-mcp to search BLR to SFO flights departing 2026-08-14, returning 2026-08-28, economy, one adult, max one stop.
+```
+
+Compare offers:
+
+```text
+Use flight-mate-mcp to compare these flight offers by price, duration, and stops, then recommend the best balanced option.
+```
+
+Create links:
+
+```text
+Use flight-mate-mcp to create flight search links for BLR to SFO departing 2026-08-14 and returning 2026-08-28.
+```
+
+## Example Tool Payloads
+
+### `search_flights`
 
 ```json
 {
@@ -67,42 +454,148 @@ npm run dev
   "departureDate": "2026-08-14",
   "returnDate": "2026-08-28",
   "adults": 1,
+  "children": 0,
+  "infants": 0,
   "cabinClass": "ECONOMY",
   "currencyCode": "USD",
   "maxStops": 1,
+  "provider": "auto",
   "limit": 5
 }
 ```
 
-Example user prompt:
+### `compare_flight_offers`
 
-```text
-Use the flight concierge MCP to find BLR to SFO flights for 2026-08-14,
-returning 2026-08-28, economy, one adult, max one stop. Compare the options by
-price, duration, and stops, then recommend the best tradeoff.
+```json
+{
+  "offers": [],
+  "priceWeight": 0.45,
+  "durationWeight": 0.35,
+  "stopsWeight": 0.2
+}
 ```
 
-## Provider Roadmap
+### `create_flight_search_links`
 
-- Amadeus: live flight search and pricing.
-- Aviationstack: live flight status and schedule data.
-- Duffel: future booking, order management, seats, and bags.
-- Skyscanner: future partner/deep-link search provider if API access is
-  approved.
+```json
+{
+  "origin": "BLR",
+  "destination": "SFO",
+  "departureDate": "2026-08-14",
+  "returnDate": "2026-08-28",
+  "adults": 1,
+  "cabinClass": "ECONOMY"
+}
+```
 
-The server intentionally does not ticket or take payment yet. Real booking needs
-passenger PII, payment handling, refunds, provider compliance, and strong user
-confirmation flows.
+## Deploy To NitroStack Cloud
 
-## Commands
+There are two practical deployment paths.
+
+### Option A: Deploy From GitHub
+
+1. Push this repository to GitHub.
+2. Open NitroStack Cloud.
+3. Create or open the MCP app.
+4. Link the app to the GitHub repository.
+5. Add environment variables in the cloud app settings.
+6. Deploy.
+7. Copy the generated service URL.
+8. Add `/mcp` when connecting from Codex or another MCP client.
+
+### Option B: Upload A Zip Package
+
+Create a clean upload package:
+
+```bash
+zip -r ../flight-concierge-mcp.zip . \
+  -x '.git/*' \
+  -x 'node_modules/*' \
+  -x 'dist/*' \
+  -x '*.zip' \
+  -x '.env'
+```
+
+Upload the zip in NitroStack Cloud, set the same environment variables, and deploy.
+
+## Environment Variables
+
+| Variable | Required | Used By | Description |
+| --- | --- | --- | --- |
+| `AMADEUS_BASE_URL` | No | Amadeus | Defaults to `https://test.api.amadeus.com`. |
+| `AMADEUS_CLIENT_ID` | For Amadeus | Amadeus | Amadeus API client id. |
+| `AMADEUS_CLIENT_SECRET` | For Amadeus | Amadeus | Amadeus API client secret. |
+| `AVIATIONSTACK_BASE_URL` | No | Aviationstack | Defaults to `http://api.aviationstack.com/v1`. |
+| `AVIATIONSTACK_API_KEY` | For Aviationstack | Aviationstack | Aviationstack API key. |
+
+## Security Notes
+
+- API keys must stay in `.env` locally or NitroStack Cloud environment variables.
+- `.env` is intentionally not committed.
+- `.env.example` is committed so setup is reproducible without exposing secrets.
+- Aviationstack and Amadeus responses may include operational flight data; avoid logging sensitive user data around trip planning in production.
+- This server does not process payments or book tickets.
+
+## Verification
+
+The codebase has been verified with:
+
+```bash
+npm run build
+npm audit --omit=dev --json
+```
+
+The deployed MCP server was also tested from Codex:
+
+- `list_flight_providers` returned Aviationstack as enabled/live after the cloud API key was added.
+- `search_flights` returned live Aviationstack schedule data for a BLR to GOI test search.
+- The result correctly warned that Aviationstack does not return fares.
+
+## Limitations
+
+- Aviationstack does not return ticket prices.
+- Amadeus credentials are needed for real fare shopping.
+- Skyscanner is currently represented through generated search links, not a direct Skyscanner partner API integration.
+- The server does not book, ticket, cancel, refund, collect payment, or store traveler PII.
+- Provider availability depends on your API plan, rate limits, and allowed endpoint filters.
+
+## Future Improvements
+
+- Add Duffel or another booking-capable provider for real order creation.
+- Add airport and city-code lookup tools.
+- Add fare calendar search for flexible travel dates.
+- Add user preference memory, such as preferred airlines, airports, max layover, and baggage expectations.
+- Add cached provider responses for repeated searches.
+- Add stricter result provenance and provider-specific confidence notes.
+- Add integration tests around provider fallback behavior.
+
+## Useful Commands
 
 ```bash
 npm run dev
 npm run build
 npm start
+npm run start:prod
+npm run upgrade
 ```
 
-## NitroStudio
+## Repository Hygiene
 
-Open this folder in NitroStudio to test tools visually, inspect payloads, and
-chat with the MCP server.
+Before pushing:
+
+```bash
+git status --short
+npm run build
+npm audit --omit=dev --json
+git add README.md docs/assets .env.example package.json package-lock.json src tsconfig.json
+git commit -m "Document Flight Concierge MCP build"
+git push origin main
+```
+
+The repository should contain documentation, source, lockfile, and screenshots. It should not contain:
+
+- `.env`
+- `node_modules`
+- `dist`
+- local zip files
+- provider secrets
